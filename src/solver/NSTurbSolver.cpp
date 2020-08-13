@@ -1,11 +1,8 @@
-/// \file 		NSTurbSolver.cpp
-/// \brief 		Defines the steps to solve advection, diffusion, pressure and add sources (with LES turbulence)
-/// \date 		Feb 15, 2017
-/// \author 	Severt
-/// \copyright 	<2015-2020> Forschungszentrum Juelich GmbH. All rights reserved.
-
-#include <iostream>
-#include <spdlog/spdlog.h>
+/// \file       NSTurbSolver.cpp
+/// \brief      Defines the steps to solve advection, diffusion, pressure and add sources (with LES turbulence)
+/// \date       Feb 15, 2017
+/// \author     Severt
+/// \copyright  <2015-2020> Forschungszentrum Juelich GmbH. All rights reserved.
 
 #include "NSTurbSolver.h"
 #include "../pressure/VCycleMG.h"
@@ -24,7 +21,7 @@ NSTurbSolver::NSTurbSolver() {
     //Diffusion of velocity
     SolverSelection::SetDiffusionSolver(&dif_vel, params->get("solver/diffusion/type"));
 
-    m_nu = params->getReal("physical_parameters/nu");
+    m_nu = params->get_real("physical_parameters/nu");
 
     // Turbulent viscosity
     SolverSelection::SetTurbulenceSolver(&mu_tub, params->get("solver/turbulence/type"));
@@ -35,7 +32,7 @@ NSTurbSolver::NSTurbSolver() {
     //Source
     SolverSelection::SetSourceSolver(&sou_vel, params->get("solver/source/type"));
 
-    m_forceFct = params->get("solver/source/force_fct");
+    m_force_function = params->get("solver/source/force_fct");
     control();
 }
 
@@ -47,31 +44,31 @@ NSTurbSolver::~NSTurbSolver() {
     delete sou_vel;
 }
 
-//=========================================== DoStep ====================================
+//=========================================== do_step ====================================
 // ***************************************************************************************
 /// \brief  brings all calculation steps together into one function
-/// \param	dt			time step
-/// \param  sync		synchronization boolean (true=sync (default), false=async)
+/// \param  dt      time step
+/// \param  sync    synchronization boolean (true=sync (default), false=async)
 // ***************************************************************************************
-void NSTurbSolver::DoStep(real t, bool sync) {
+void NSTurbSolver::do_step(real t, bool sync) {
 
     // local variables and parameters for GPU
-    auto u = SolverI::u;
-    auto v = SolverI::v;
-    auto w = SolverI::w;
-    auto u0 = SolverI::u0;
-    auto v0 = SolverI::v0;
-    auto w0 = SolverI::w0;
-    auto u_tmp = SolverI::u_tmp;
-    auto v_tmp = SolverI::v_tmp;
-    auto w_tmp = SolverI::w_tmp;
-    auto p = SolverI::p;
-    auto p0 = SolverI::p0;
-    auto rhs = SolverI::rhs;
-    auto f_x = SolverI::f_x;
-    auto f_y = SolverI::f_y;
-    auto f_z = SolverI::f_z;
-    auto nu_t = SolverI::nu_t;     //nu_t - Eddy Viscosity
+    auto u = ISolver::u;
+    auto v = ISolver::v;
+    auto w = ISolver::w;
+    auto u0 = ISolver::u0;
+    auto v0 = ISolver::v0;
+    auto w0 = ISolver::w0;
+    auto u_tmp = ISolver::u_tmp;
+    auto v_tmp = ISolver::v_tmp;
+    auto w_tmp = ISolver::w_tmp;
+    auto p = ISolver::p;
+    auto p0 = ISolver::p0;
+    auto rhs = ISolver::rhs;
+    auto f_x = ISolver::f_x;
+    auto f_y = ISolver::f_y;
+    auto f_z = ISolver::f_z;
+    auto nu_t = ISolver::nu_t;     //nu_t - Eddy Viscosity
 
     auto d_u = u->data;
     auto d_v = v->data;
@@ -90,7 +87,7 @@ void NSTurbSolver::DoStep(real t, bool sync) {
     auto d_fz = f_z->data;
     auto d_nu_t = nu_t->data;
 
-    size_t bsize = Domain::getInstance()->GetSize(u->GetLevel());
+    size_t bsize = Domain::getInstance()->get_size(u->GetLevel());
 
     auto nu = m_nu;
 
@@ -99,59 +96,60 @@ void NSTurbSolver::DoStep(real t, bool sync) {
     {
 
 // 1. Solve advection equation
-#ifndef PROFILING
-        spdlog::info("Advect ...");
+#ifndef BENCHMARKING
+        auto m_logger = Utility::create_logger(typeid(NSTurbSolver).name());
+        m_logger->info("Advect ...");
 #endif
         adv_vel->advect(u, u0, u0, v0, w0, sync);
         adv_vel->advect(v, v0, u0, v0, w0, sync);
         adv_vel->advect(w, w0, u0, v0, w0, sync);
 
         // Couple velocity to prepare for diffusion
-        SolverI::CoupleVector(u, u0, u_tmp, v, v0, v_tmp, w, w0, w_tmp, sync);
+        ISolver::couple_vector(u, u0, u_tmp, v, v0, v_tmp, w, w0, w_tmp, sync);
 
 // 2. Solve turbulent diffusion equation
-#ifndef PROFILING
-        spdlog::info("Calculating Turbulent viscosity ...");
+#ifndef BENCHMARKING
+        m_logger->info("Calculating Turbulent viscosity ...");
 #endif
         mu_tub->CalcTurbViscosity(nu_t, u, v, w, true);
 
 
-#ifndef PROFILING
-        spdlog::info("Diffuse ...");
+#ifndef BENCHMARKING
+        m_logger->info("Diffuse ...");
 #endif
         dif_vel->diffuse(u, u0, u_tmp, nu, nu_t, sync);
         dif_vel->diffuse(v, v0, v_tmp, nu, nu_t, sync);
         dif_vel->diffuse(w, w0, w_tmp, nu, nu_t, sync);
 
         // Couple data to prepare for adding source
-        SolverI::CoupleVector(u, u0, u_tmp, v, v0, v_tmp, w, w0, w_tmp, sync);
+        ISolver::couple_vector(u, u0, u_tmp, v, v0, v_tmp, w, w0, w_tmp, sync);
 
 // 3. Add force
-        if (m_forceFct != SourceMethods::Zero) {
+        if (m_force_function != SourceMethods::Zero) {
 
-#ifndef PROFILING
-            spdlog::info("Add source ...");
+#ifndef BENCHMARKING
+            m_logger->info("Add source ...");
 #endif
-            sou_vel->addSource(u, v, w, f_x, f_y, f_z, sync);
+            sou_vel->add_source(u, v, w, f_x, f_y, f_z, sync);
 
             // Couple data
-            SolverI::CoupleVector(u, u0, u_tmp, v, v0, v_tmp, w, w0, w_tmp, sync);
+            ISolver::couple_vector(u, u0, u_tmp, v, v0, v_tmp, w, w0, w_tmp, sync);
         }
 
 // 4. Solve pressure equation and project
         // Calculate divergence of u
-        pres->Divergence(rhs, u_tmp, v_tmp, w_tmp, sync);
+        pres->divergence(rhs, u_tmp, v_tmp, w_tmp, sync);
 
         // Solve pressure equation
-#ifndef PROFILING
-        spdlog::info("Pressure ...");
+#ifndef BENCHMARKING
+        m_logger->info("Pressure ...");
 #endif
         pres->pressure(p, rhs, t, sync);
 
         // Correct
-        pres->Project(u, v, w, u_tmp, v_tmp, w_tmp, p, sync);
+        pres->projection(u, v, w, u_tmp, v_tmp, w_tmp, p, sync);
 
-// 5. Sources updated in Solver::UpdateSources, TimeIntegration
+// 5. Sources updated in Solver::update_sources, TimeIntegration
 
         if (sync) {
 #pragma acc wait
@@ -164,19 +162,28 @@ void NSTurbSolver::DoStep(real t, bool sync) {
 /// \brief  Checks if field specified correctly
 // ***************************************************************************************
 void NSTurbSolver::control() {
+#ifndef BENCHMARKING
+    auto m_logger = Utility::create_logger(typeid(NSTurbSolver).name());
+#endif
     auto params = Parameters::getInstance();
     if (params->get("solver/advection/field") != "u,v,w") {
-        spdlog::error("Fields not specified correctly!");
+#ifndef BENCHMARKING
+        m_logger->error("Fields not specified correctly!");
+#endif
         std::exit(1);
         //TODO Error handling
     }
     if (params->get("solver/diffusion/field") != "u,v,w") {
-        spdlog::error("Fields not specified correctly!");
+#ifndef BENCHMARKING
+        m_logger->error("Fields not specified correctly!");
+#endif
         std::exit(1);
         //TODO Error handling
     }
     if (params->get("solver/pressure/field") != BoundaryData::getFieldTypeName(FieldType::P)) {
-        spdlog::error("Fields not specified correctly!");
+#ifndef BENCHMARKING
+        m_logger->error("Fields not specified correctly!");
+#endif
         std::exit(1);
         //TODO Error handling
     }

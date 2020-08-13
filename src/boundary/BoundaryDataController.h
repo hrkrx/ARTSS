@@ -10,9 +10,6 @@
 
 #include "../utility/tinyxml2.h"
 #include "BoundaryData.h"
-#ifndef PROFILING
-#include <spdlog/logger.h>
-#endif
 
 class BoundaryDataController {
 public:
@@ -26,9 +23,11 @@ public:
 
     //void setIndexFields(size_t** indexFields);
 
+    std::vector<FieldType> get_used_fields();
+
 private:
     BoundaryData** m_boundaryData;
-#ifndef PROFILING
+#ifndef BENCHMARKING
     std::shared_ptr<spdlog::logger> m_logger;
 #endif
 

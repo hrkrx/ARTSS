@@ -12,8 +12,8 @@ inline static const std::vector<std::string> PatchNames = {"front", "back", "bot
 inline static const std::vector<std::string> BoundaryConditionNames = {"neumann", "dirichlet", "periodic"};
 
 BoundaryData::BoundaryData() {
-#ifndef PROFILING
-    m_logger = Utility::createLogger(typeid(this).name());
+#ifndef BENCHMARKING
+    m_logger = Utility::create_logger(typeid(this).name());
 #endif
     m_values = new real[numberOfPatches];
     m_boundaryConditions = new BoundaryCondition[numberOfPatches];
@@ -29,12 +29,16 @@ BoundaryData::~BoundaryData() {
 /// \brief  Print boundary infos
 // *******************************************************************************
 void BoundaryData::print() {
+#ifdef BENCHMARKING
+    return;
+#else
     for (size_t i = 0; i < numberOfPatches; i++) {
         std::string p = getPatchName(static_cast<Patch>(i));
         std::string bc = getBoundaryConditionName(m_boundaryConditions[i]);
         real val = m_values[i];
         m_logger->info("\t Patch {} with {} {}", p , bc, val);
     }
+#endif
 }
 
 //====================================== Matches =================================

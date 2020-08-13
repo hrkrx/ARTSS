@@ -7,11 +7,9 @@
 #ifndef ARTSS_BOUNDARY_BOUNDARYDATA_H_
 #define ARTSS_BOUNDARY_BOUNDARYDATA_H_
 
-#ifndef PROFILING
-#include <spdlog/logger.h>
-#endif
 #include <string>
 #include <vector>
+#include "../utility/Utility.h"
 #include "../utility/tinyxml2.h"
 #include "../Field.h"
 
@@ -57,7 +55,7 @@ public:
     bool isEmpty(){ return !m_hasValues; };
 private:
 
-#ifndef PROFILING
+#ifndef BENCHMARKING
     std::shared_ptr<spdlog::logger> m_logger;
 #endif
     BoundaryCondition* m_boundaryConditions;

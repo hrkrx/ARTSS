@@ -167,7 +167,6 @@ set(SOURCE_FILES
         "src/adaption/Layers.cpp"
         "src/adaption/Vortex.cpp"
 
-        "src/advection/ExplicitAdvect.cpp"
         "src/advection/SLAdvect.cpp"
 
         "src/analysis/Analysis.cpp"
@@ -188,9 +187,9 @@ set(SOURCE_FILES
         "src/diffusion/ExplicitDiffuse.cpp"
         "src/diffusion/JacobiDiffuse.cpp"
 
-        "src/interfaces/PressureI.cpp"
-        "src/interfaces/SolverI.cpp"
-        "src/interfaces/SourceI.cpp"
+        "src/interfaces/IPressure.cpp"
+        "src/interfaces/ISolver.cpp"
+        "src/interfaces/ISource.cpp"
 
         "src/pressure/VCycleMG.cpp"
 
@@ -215,8 +214,11 @@ set(SOURCE_FILES
         "src/utility/Parameters.cpp"
         "src/utility/tinyxml2.cpp"
         "src/utility/Utility.cpp"
-        "src/utility/visit_writer.cpp"
-        "src/utility/Visual.cpp"
+
+        "src/visualisation/CSVWriter.cpp"
+        "src/visualisation/Visual.cpp"
+        "src/visualisation/VTKWriter.cpp"
+        "src/visualisation/visit_writer.cpp"
 
         "src/Domain.cpp"
         "src/Field.cpp"
@@ -232,7 +234,6 @@ set(HEADER_FILES
         "src/adaption/Layers.h"
         "src/adaption/Vortex.h"
 
-        "src/advection/ExplicitAdvect.h"
         "src/advection/SLAdvect.h"
 
         "src/boundary/Boundary.h"
@@ -250,13 +251,13 @@ set(HEADER_FILES
         "src/diffusion/ExplicitDiffuse.h"
         "src/diffusion/JacobiDiffuse.h"
 
-        "src/interfaces/AdaptionFunctionI.h"
-        "src/interfaces/advectionI.h"
-        "src/interfaces/diffusionI.h"
-        "src/interfaces/PressureI.h"
-        "src/interfaces/SolverI.h"
-        "src/interfaces/SourceI.h"
-        "src/interfaces/TurbulenceI.h"
+        "src/interfaces/IAdaptionFunction.h"
+        "src/interfaces/IAdvection.h"
+        "src/interfaces/IDiffusion.h"
+        "src/interfaces/IPressure.h"
+        "src/interfaces/ISolver.h"
+        "src/interfaces/ISource.h"
+        "src/interfaces/ITurbulence.h"
 
         "src/pressure/VCycleMG.h"
 
@@ -282,8 +283,11 @@ set(HEADER_FILES
         "src/utility/tinyxml2.h"
         "src/utility/Tracer.h"
         "src/utility/Utility.h"
-        "src/utility/visit_writer.h"
-        "src/utility/Visual.h"
+
+        "src/visualisation/CSVWriter.h"
+        "src/visualisation/Visual.h"
+        "src/visualisation/VTKWriter.h"
+        "src/visualisation/visit_writer.h"
 
         "src/Domain.h"
         "src/Field.h"
@@ -346,7 +350,6 @@ add_subdirectory(./external/googletest)
 include_directories(${gtest_SOURCE_DIR}/include ${gtest_SOURCE_DIR})
 set(TEST_SRC_FILES
     "./gtests/utility/Utility.cpp"
-    "./gtests/advection/ExplicitAdvect.cpp"
     )
 add_executable(runUnitTests ${TEST_SRC_FILES} ${SOURCE_FILES})
 target_include_directories(runUnitTests PUBLIC ./)
@@ -354,6 +357,13 @@ target_link_libraries(runUnitTests PUBLIC gtest gtest_main)
 target_link_libraries(runUnitTests PRIVATE spdlog::spdlog)
 add_test(UnitTests runUnitTests)
 
+add_executable( artss_serial_benchmark ${SOURCE_FILES} src/main.cpp  )
+set_target_properties( artss_serial_benchmark PROPERTIES COMPILE_FLAGS "-DBENCHMARKING -DUSE_NVTX" )
+target_link_libraries( artss_serial_benchmark  )
+
+add_executable( artss_multicore_cpu_benchmark ${SOURCE_FILES} src/main.cpp  )
+set_target_properties( artss_multicore_cpu_benchmark PROPERTIES COMPILE_FLAGS "-acc -ta=multicore -DBENCHMARKING -DUSE_NVTX" LINK_FLAGS "-acc -ta=multicore" )
+target_link_libraries( artss_multicore_cpu_benchmark  )
 
 file( COPY ${CMAKE_CURRENT_SOURCE_DIR}/tests DESTINATION ${CMAKE_BINARY_DIR} )
 
@@ -387,8 +397,8 @@ add_test( NAME NSTempBuoyancyMMSTest COMMAND sh ./run.sh ${CMAKE_BINARY_DIR}/${E
   WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests/navierStokesTemp/mms )
 add_test( NAME NSTempTurbBuoyancyMMSTest COMMAND sh ./run.sh ${CMAKE_BINARY_DIR}/${EXECUTABLE_OUTPUT_PATH}/artss_serial
   WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests/navierStokesTempTurb/mms )
-add_test( NAME NSTempTurbAdaptionTest COMMAND sh ./run.sh ${CMAKE_BINARY_DIR}/${EXECUTABLE_OUTPUT_PATH}/artss_serial
-  WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests/navierStokesTempTurb/dynamicBoundaries )
+  #add_test( NAME NSTempTurbAdaptionTest COMMAND sh ./run.sh ${CMAKE_BINARY_DIR}/${EXECUTABLE_OUTPUT_PATH}/artss_serial
+  #  WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests/navierStokesTempTurb/dynamicBoundaries )
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "PGI" OR CMAKE_C_COMPILER_ID STREQUAL "PGI")
   add_test( NAME AdvectionTest_mc COMMAND sh ./run.sh ${CMAKE_BINARY_DIR}/${EXECUTABLE_OUTPUT_PATH}/artss_multicore_cpu
@@ -421,8 +431,8 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "PGI" OR CMAKE_C_COMPILER_ID STREQUAL "PGI")
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests/navierStokesTemp/mms )
   add_test( NAME NSTempTurbBuoyancyMMSTest_mc COMMAND sh ./run.sh ${CMAKE_BINARY_DIR}/${EXECUTABLE_OUTPUT_PATH}/artss_multicore_cpu
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests/navierStokesTempTurb/mms )
-  add_test( NAME NSTempTurbAdaptionTest_mc COMMAND sh ./run.sh ${CMAKE_BINARY_DIR}/${EXECUTABLE_OUTPUT_PATH}/artss_multicore_cpu
-    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests/navierStokesTempTurb/dynamicBoundaries )
+  #  add_test( NAME NSTempTurbAdaptionTest_mc COMMAND sh ./run.sh ${CMAKE_BINARY_DIR}/${EXECUTABLE_OUTPUT_PATH}/artss_multicore_cpu
+  #    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests/navierStokesTempTurb/dynamicBoundaries )
   add_test( NAME AdvectionTest_gpu COMMAND sh ./run.sh ${CMAKE_BINARY_DIR}/${EXECUTABLE_OUTPUT_PATH}/artss_gpu
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests/advection )
   add_test( NAME BurgersTest_gpu COMMAND sh ./run.sh ${CMAKE_BINARY_DIR}/${EXECUTABLE_OUTPUT_PATH}/artss_gpu
@@ -453,6 +463,6 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "PGI" OR CMAKE_C_COMPILER_ID STREQUAL "PGI")
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests/navierStokesTemp/mms )
   add_test( NAME NSTempTurbBuoyancyMMSTest_gpu COMMAND sh ./run.sh ${CMAKE_BINARY_DIR}/${EXECUTABLE_OUTPUT_PATH}/artss_gpu
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests/navierStokesTempTurb/mms )
-  add_test( NAME NSTempTurbAdaptionTest_gpu COMMAND sh ./run.sh ${CMAKE_BINARY_DIR}/${EXECUTABLE_OUTPUT_PATH}/artss_gpu
-    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests/navierStokesTempTurb/dynamicBoundaries )
+  #  add_test( NAME NSTempTurbAdaptionTest_gpu COMMAND sh ./run.sh ${CMAKE_BINARY_DIR}/${EXECUTABLE_OUTPUT_PATH}/artss_gpu
+  #    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests/navierStokesTempTurb/dynamicBoundaries )
 endif()

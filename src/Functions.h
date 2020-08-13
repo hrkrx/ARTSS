@@ -1,6 +1,6 @@
 /// \file       Functions.h
 /// \brief      Functions for Initialization
-/// \date       June 13, 2016
+/// \date       Jun 13, 2016
 /// \author     Severt
 /// \copyright  <2015-2020> Forschungszentrum Juelich GmbH. All rights reserved.
 
@@ -20,7 +20,7 @@ struct FunctionNames{
     static const std::string GaussBubble;
     static const std::string Hat;
     static const std::string McDermott;
-    static const std::string RandomT;
+    static const std::string RandomC;
     static const std::string RampTanh;
     static const std::string SinSinSin;
     static const std::string Uniform;
@@ -31,44 +31,45 @@ struct FunctionNames{
 
 namespace Functions {  // alphabetically ordered
 
-    void Beltrami(Field* outx, Field* outy, Field* outz, Field* outp, real t);
-    void BeltramiBC_p(Field* outx);
-    void BeltramiBC_u(Field* outx, real t);
-    void BeltramiBC_v(Field* outx, real t);
-    void BeltramiBC_w(Field* outx, real t);
-    void BuoyancyForce(Field* out, Field* T, Field* Ta);
-    void BuoyancyMMS(
-            Field* outx, Field* outy, Field* outz, Field* outp,
-            Field* outT, real t);
-    void BuoyancyST_MMS(Field* out, real t);
+  void Beltrami(Field* outx, Field* outy, Field* outz, Field* outp, real t);
+  void BeltramiBC_p(Field* outx);
+  void BeltramiBC_u(Field* outx, real t);
+  void BeltramiBC_v(Field* outx, real t);
+  void BeltramiBC_w(Field* outx, real t);
+  void BuoyancyForce(Field* out, Field* T, Field* Ta);
+  void BuoyancyMMS(Field* outx, Field* outy, Field* outz, Field* outp, Field* outT, real t);
+  void BuoyancyST_MMS(Field* out, real t);
 
-    void Drift(Field* outx, Field* outy, Field* outz, Field* outp);
+  void Drift(Field* outx, Field* outy, Field* outz, Field* outp);
 
-    void ExpSinusProd(Field* out, real t);
-    void ExpSinusSum(Field* outx, Field* outy, Field* outz, real t);
+  void ExpSinusProd(Field* out, real t);
+  void ExpSinusSum(Field* outx, Field* outy, Field* outz, real t);
 
-    void FacSinSinSin(Field* out);
+  void FacSinSinSin(Field* out);
 
-    void GaussBubble(Field* out, real t);
+  void GaussBubble(Field* out, real t);
 
-    void Hat(Field* out);
+  void Hat(Field* out);
 
-    void Layers(Field* out);
+  void Layers(Field* out);
 
-    void McDermott(Field* outx, Field* outy, Field* outz, Field* outp, real t);
+  void McDermott(Field* outx, Field* outy, Field* outz, Field* outp, real t);
 
-    real RampTanh(real t);
-    void Random(Field* out, real Va, real A, size_t range);
-    void Random(Field* out, Field* Va, real A, size_t range);
+  real RampTanh(real t);
 
-    void SinSinSin(Field* out);
+  void Random(Field* out, real range, bool is_absolute, int seed, real step_size);
 
-    void Uniform(Field* out, real val);
+  void SinSinSin(Field* out);
 
-    void Vortex(Field *outx, Field *outy, Field *outz, Field *outp);
-    void VortexY(Field *outx, Field *outy, Field *outz, Field *outp);
+  void Uniform(Field* out, real val);
 
-    void Zero(Field* field, size_t* arr_idx, size_t arr_idx_size);
-}  // namespace Functions
+  void Vortex(Field *outx, Field *outy, Field *outz, Field *outp);
+  void VortexY(Field *outx, Field *outy, Field *outz, Field *outp);
+
+  void Vortex(Field *outx, Field *outy, Field *outz, Field *outp);
+  void VortexY(Field *outx, Field *outy, Field *outz, Field *outp);
+
+  void Zero(Field* field, size_t* arr_idx, size_t arr_idx_size);
+};
 
 #endif /* ARTSS_FUNCTIONS_H_ */

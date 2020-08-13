@@ -7,6 +7,7 @@
 #include "BoundaryController.h"
 #include "../utility/Parameters.h"
 #include "../Domain.h"
+#include <tuple>
 #include "../utility/Utility.h"
 #include <algorithm>
 
@@ -14,8 +15,8 @@ BoundaryController *BoundaryController::singleton = nullptr; // Singleton
 
 
 BoundaryController::BoundaryController() {
-#ifndef PROFILING
-    m_logger = Utility::createLogger(typeid(this).name());
+#ifndef BENCHMARKING
+    m_logger = Utility::create_logger(typeid(this).name());
 #endif
     m_bdc_boundary = new BoundaryDataController();
     readXML();
@@ -24,7 +25,7 @@ BoundaryController::BoundaryController() {
     } else {
         m_multigrid = new Multigrid(m_bdc_boundary);
     }
-#ifndef PROFILING
+#ifndef BENCHMARKING
     printBoundaries();
 #endif
 }
@@ -35,10 +36,9 @@ BoundaryController::BoundaryController() {
 // ***************************************************************************************
 void BoundaryController::readXML() {
     auto params = Parameters::getInstance();
-    tinyxml2::XMLElement* rootElement = params->getRootElement();
-    parseBoundaryParameter(rootElement->FirstChildElement("boundaries"));
-    parseObstacleParameter(rootElement->FirstChildElement("obstacles"));
-    parseSurfaceParameter(rootElement->FirstChildElement("surfaces"));
+    parseBoundaryParameter(params->get_first_child("boundaries"));
+    parseObstacleParameter(params->get_first_child("obstacles"));
+    parseSurfaceParameter( params->get_first_child("surfaces"));
 }
 
 // ================================= Parser =============================================
@@ -110,7 +110,9 @@ void BoundaryController::parseObstacleParameter(tinyxml2::XMLElement *xmlParamet
                     oz1 = curElem->DoubleAttribute("oz1");
                     oz2 = curElem->DoubleAttribute("oz2");
                 } else {
+#ifndef BENCHMARKING
                     m_logger->warn("Ignoring unknown node {}", nodeName);
+#endif
                 }
                 curElem = curElem->NextSiblingElement();
             }
@@ -158,6 +160,9 @@ BoundaryController *BoundaryController::getInstance() {
 /// \brief  prints boundaries (outer, inner, surfaces)
 // ***************************************************************************************
 void BoundaryController::printBoundaries() {
+#ifdef BENCHMARKING
+    return;
+#else
     m_logger->info("-- Info summary");
     Domain::getInstance()->print();
     m_bdc_boundary->print();
@@ -168,6 +173,7 @@ void BoundaryController::printBoundaries() {
     for (size_t i = 0; i < m_numberOfSurfaces; i++) {
         m_surfaceList[i]->print();
     }
+#endif
 }
 
 //======================================== Update lists ====================================
@@ -257,4 +263,8 @@ size_t BoundaryController::getObstacleStrideY(size_t id, size_t level){
 }
 size_t BoundaryController::getObstacleStrideZ(size_t id, size_t level){
     return m_multigrid->getObstacleStrideZ(id, level);
+}
+
+std::vector<FieldType> BoundaryController::get_used_fields() {
+    return m_bdc_boundary->get_used_fields();
 }

@@ -8,14 +8,14 @@
 #define ARTSS_PRESSURE_VCYCLEMG_H_
 
 #include <vector>
-#include "../interfaces/PressureI.h"
+#include "../interfaces/IPressure.h"
 #include "../Field.h"
 #include "../utility/GlobalMacrosTypes.h"
-#ifndef PROFILING
-#include <spdlog/logger.h>
-#endif
+#include "../utility/Utility.h"
 
-class VCycleMG: public PressureI{
+
+
+class VCycleMG: public IPressure{
 public:
 	VCycleMG(Field* out, Field* b);
 	~VCycleMG() override;
@@ -43,7 +43,7 @@ private:
 	std::vector<Field*> err0;
 	std::vector<Field*> error1;
 	std::vector<Field*> mg_temporal_solution;
-#ifndef PROFILING
+#ifndef BENCHMARKING
     std::shared_ptr<spdlog::logger> m_logger;
 #endif
 };

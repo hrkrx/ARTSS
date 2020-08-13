@@ -25,23 +25,25 @@ PressureSolver::~PressureSolver() {
 /// \param  dt      time step
 /// \param  sync    synchronization boolean (true=sync (default), false=async)
 // *****************************************************************************
-void PressureSolver::DoStep(real t, bool sync) {
-#ifndef PROFILING
-    spdlog::info("Pressure ...");
+void PressureSolver::do_step(real t, bool sync) {
+#ifndef BENCHMARKING
+    auto m_logger = Utility::create_logger(typeid(PressureSolver).name());
+    m_logger->info("Pressure ...");
 #endif
 
 // 1. Solve pressure Poisson equation
 
     // local variables and parameters for GPU
-    auto pi = SolverI::p;
-    auto rhsi = SolverI::rhs;
-    // auto d_p = p->data;
-    // auto d_rhs = rhs->data;
-    // size_t bsize = Domain::getInstance()->GetSize(p->GetLevel());
+    auto p = ISolver::p;
+    auto rhs = ISolver::rhs;
+    auto d_p = p->data;
+    auto d_rhs = rhs->data;
+
+    size_t bsize = Domain::getInstance()->get_size(p->GetLevel());
 
 #pragma acc data present(d_p[:bsize], d_rhs[:bsize])
     {
-        pres->pressure(pi, rhsi, t, sync);
+        pres->pressure(p, rhs, t, sync);
     }  // end data
 }
 
@@ -53,8 +55,11 @@ void PressureSolver::control() {
     auto params = Parameters::getInstance();
     auto p_field = params->get("solver/pressure/field");
     if (p_field != BoundaryData::getFieldTypeName(FieldType::P)) {
-        spdlog::error("Fields not specified correctly!");
+#ifndef BENCHMARKING
+        auto m_logger = Utility::create_logger(typeid(PressureSolver).name());
+        m_logger->error("Fields not specified correctly!");
+#endif
         std::exit(1);
-        //TODO Error handling
+        // TODO Error handling
     }
 }

@@ -4,15 +4,14 @@
 /// \author 	My Linh Würzburger
 /// \copyright 	<2015-2020> Forschungszentrum Juelich GmbH. All rights reserved.
 
-#include <iostream>
 #include "BoundaryDataController.h"
 #include "../utility/Utility.h"
 #include "../boundaryCondition/DomainBoundary.h"
 #include "../boundaryCondition/ObstacleBoundary.h"
 
 BoundaryDataController::BoundaryDataController() {
-#ifndef PROFILING
-    m_logger = Utility::createLogger(typeid(this).name());
+#ifndef BENCHMARKING
+    m_logger = Utility::create_logger(typeid(this).name());
 #endif
     m_boundaryData = new BoundaryData *[numberOfFieldTypes];
     for (size_t i = 0; i < numberOfFieldTypes; i++) {
@@ -20,7 +19,7 @@ BoundaryDataController::BoundaryDataController() {
     }
 }
 
-BoundaryDataController::~BoundaryDataController(){
+BoundaryDataController::~BoundaryDataController() {
     for (size_t i = 0; i < numberOfFieldTypes; i++) {
         delete m_boundaryData[i];
     }
@@ -56,6 +55,9 @@ void BoundaryDataController::addBoundaryData(tinyxml2::XMLElement *xmlElement) {
 /// \brief  Prints info of boundary data
 // ***************************************************************************************
 void BoundaryDataController::print() {
+#ifdef BENCHMARKING
+    return;
+#else
     for (size_t i = 0; i < numberOfFieldTypes; i++) {
         auto boundary = *(m_boundaryData + i);
         if (!boundary->isEmpty()) {
@@ -63,6 +65,7 @@ void BoundaryDataController::print() {
             boundary->print();
         }
     }
+#endif
 }
 
 //======================================== Apply boundary condition ====================================
@@ -98,4 +101,14 @@ void BoundaryDataController::applyBoundaryConditionObstacle(real *data, size_t *
     if (!((BoundaryData *) *(m_boundaryData + fieldType))->isEmpty()) {
         ObstacleBoundary::applyBoundaryCondition(data, indexFields, patch_start, patch_end, level, m_boundaryData[fieldType], id, sync);
     }
+}
+
+std::vector<FieldType> BoundaryDataController::get_used_fields() {
+    std::vector<FieldType> v_fields;
+    for (size_t fieldType = 0; fieldType < numberOfFieldTypes; fieldType++) {
+        if (!((BoundaryData *) *(m_boundaryData + fieldType))->isEmpty()){
+            v_fields.push_back(static_cast<FieldType>(fieldType));
+        }
+    }
+    return v_fields;
 }

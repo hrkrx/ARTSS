@@ -11,11 +11,11 @@
 #include "Surface.h"
 #include "Obstacle.h"
 #include "../Field.h"
+#include "../Domain.h"
+#include "../utility/Utility.h"
 #include "BoundaryDataController.h"
 #include <vector>
-#ifndef PROFILING
-#include <spdlog/logger.h>
-#endif
+
 
 class Multigrid {
 public:
@@ -47,7 +47,7 @@ public:
     size_t getObstacleStrideZ(size_t id, size_t level);
 
 private:
-#ifndef PROFILING
+#ifndef BENCHMARKING
     std::shared_ptr<spdlog::logger> m_logger;
 #endif
     std::vector<BoundaryData*> m_boundaryData;
@@ -113,6 +113,7 @@ private:
     size_t* m_data_MG_oBottom_level_joined;
     size_t* m_data_MG_oLeft_level_joined;
     size_t* m_data_MG_oRight_level_joined;
+    size_t* m_data_MG_oList_zero_joined;
 
     size_t getSize_oList(size_t level);
     size_t getLastIndex_oFront( size_t level, size_t id);

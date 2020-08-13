@@ -1,11 +1,16 @@
-/// \file 		SolverI.h
-/// \brief 		Interface holds solvers for solving governing equations
-/// \date 		May 20, 2016
-/// \author 	Severt
-/// \copyright 	<2015-2020> Forschungszentrum Juelich GmbH. All rights reserved.
+/// \file       ISolver.cpp
+/// \brief      Interface holds solvers for solving governing equations
+/// \date       May 20, 2016
+/// \author     Severt
+/// \copyright  <2015-2020> Forschungszentrum Juelich GmbH. All rights reserved.
 
 #include <cmath>
-#include "SolverI.h"
+
+#ifdef _OPENACC
+#include <accelmath.h>
+#endif
+
+#include "ISolver.h"
 #include "../utility/Parameters.h"
 #include "../Functions.h"
 #include "../source/ExplicitEulerSource.h"
@@ -14,9 +19,9 @@
 #include "../solver/SolverSelection.h"
 #include "../utility/Utility.h"
 
-SolverI::SolverI() {
-#ifndef PROFILING
-    m_logger = Utility::createLogger(typeid(this).name());
+ISolver::ISolver() {
+#ifndef BENCHMARKING
+    m_logger = Utility::create_logger(typeid(this).name());
 #endif
     auto params = Parameters::getInstance();
 
@@ -48,12 +53,12 @@ SolverI::SolverI() {
     T = new Field(FieldType::T, 0.0);
     T0 = new Field(FieldType::T, 0.0);
     T_tmp = new Field(FieldType::T, 0.0);
-    T_a = new Field(FieldType::T, 0.0);
+    T_ambient = new Field(FieldType::T, 0.0);
 
     // Concentration
-    C = new Field(FieldType::RHO, 0.0);
-    C0 = new Field(FieldType::RHO, 0.0);
-    C_tmp = new Field(FieldType::RHO, 0.0);
+    concentration = new Field(FieldType::RHO, 0.0);
+    concentration0 = new Field(FieldType::RHO, 0.0);
+    concentration_tmp = new Field(FieldType::RHO, 0.0);
 
     // Forces
     f_x = new Field(FieldType::U, 0.0);
@@ -62,7 +67,7 @@ SolverI::SolverI() {
 
     // Sources
     S_T = new Field(FieldType::T, 0.0);
-    S_C = new Field(FieldType::RHO, 0.0);
+    S_concentration = new Field(FieldType::RHO, 0.0);
 
     // Fields for sight of boundaries
     sight = new Field(FieldType::RHO, 1.0);
@@ -76,11 +81,13 @@ SolverI::SolverI() {
         m_string_solver == SolverTypes::NSTempTurbConSolver or \
         m_string_solver == SolverTypes::NSTurbSolver) {
         if (params->get("solver/source/type") == SourceMethods::ExplicitEuler) {
-            this->sou_vel = new ExplicitEulerSource();
+            this->source_velocity = new ExplicitEulerSource();
         } else {
+#ifndef BENCHMARKING
             m_logger->critical("Source method not yet implemented! Simulation stopped!");
+#endif
             std::exit(1);
-            //TODO Error handling
+            // TODO Error handling
         }
     }
     if (m_string_solver == SolverTypes::NSTempSolver or \
@@ -90,11 +97,13 @@ SolverI::SolverI() {
 
         // Source of temperature
         if (params->get("solver/temperature/source/type") == SourceMethods::ExplicitEuler) {
-            this->sou_temp = new ExplicitEulerSource();
+            this->source_temperature = new ExplicitEulerSource();
         } else {
+#ifndef BENCHMARKING
             m_logger->critical("Source method not yet implemented! Simulation stopped!");
+#endif
             std::exit(1);
-            //TODO Error handling
+            // TODO Error handling
         }
     }
     if (m_string_solver == SolverTypes::NSTempConSolver or \
@@ -102,20 +111,22 @@ SolverI::SolverI() {
 
         // Source of concentration
         if (params->get("solver/concentration/source/type") == SourceMethods::ExplicitEuler) {
-            this->sou_con = new ExplicitEulerSource();
+            this->source_concentration = new ExplicitEulerSource();
         } else {
+#ifndef BENCHMARKING
             m_logger->critical("Source method not yet implemented! Simulation stopped!");
+#endif
             std::exit(1);
-            //TODO Error handling
+            // TODO Error handling
         }
     }
 
-    SetUp();
+    set_up();
 }
 
 // ==================================== Destructor ====================================
 // ***************************************************************************************
-SolverI::~SolverI() {
+ISolver::~ISolver() {
     delete u;
     delete v;
     delete w;
@@ -137,17 +148,17 @@ SolverI::~SolverI() {
     delete T;
     delete T0;
     delete T_tmp;
-    delete T_a;
+    delete T_ambient;
 
-    delete C;
-    delete C0;
-    delete C_tmp;
+    delete concentration;
+    delete concentration0;
+    delete concentration_tmp;
 
     delete f_x;
     delete f_y;
     delete f_z;
     delete S_T;
-    delete S_C;
+    delete S_concentration;
 
     delete sight;
 
@@ -157,57 +168,61 @@ SolverI::~SolverI() {
         m_string_solver == SolverTypes::NSTempTurbConSolver or \
         m_string_solver == SolverTypes::NSTempTurbSolver or \
         m_string_solver == SolverTypes::NSTurbSolver) {
-        delete sou_vel;
+        delete source_velocity;
     }
     if (m_string_solver == SolverTypes::NSTempSolver or \
         m_string_solver == SolverTypes::NSTempTurbSolver) {
-        delete sou_temp;
+        delete source_temperature;
     }
     if (m_string_solver == SolverTypes::NSTempConSolver or \
         m_string_solver == SolverTypes::NSTempTurbConSolver) {
-        delete sou_con;
+        delete source_concentration;
     }
 }
 
-// ==================================== Set Up ========================================
-// ***************************************************************************************
+// =============================== Set Up ===================================
+// *****************************************************************************
 /// \brief  initializes numerical and temporary solution
-// ***************************************************************************************
-void SolverI::SetUp() {
+// *****************************************************************************
+void ISolver::set_up() {
+#ifndef BENCHMARKING
     m_logger->info("Start initializing....");
+#endif
 
-    // Initialization of variables at time t=0
-    Init();
+    // Initialization of variables
+    init();
 
-    // Initialization of temp and new variables
-    Init_f(u_tmp, u0->data);
-    Init_f(v_tmp, v0->data);
-    Init_f(w_tmp, w0->data);
-    Init_f(u, u0->data);
-    Init_f(v, v0->data);
-    Init_f(w, w0->data);
-    Init_f(p, p0->data);
-    Init_f(T, T0->data);
-    Init_f(T_tmp, T0->data);
-    Init_f(T_a, T0->data);
-    Init_f(C, C0->data);
-    Init_f(C_tmp, C0->data);
+    // TODO necessary?
+    // Initialization of temp and 0 variables
+    init_f(u_tmp, u->data);
+    init_f(v_tmp, v->data);
+    init_f(w_tmp, w->data);
+    init_f(u0, u->data);
+    init_f(v0, v->data);
+    init_f(w0, w->data);
+    init_f(p0, p->data);
+    init_f(T0, T->data);
+    init_f(T_tmp, T->data);
+    init_f(T_ambient, T->data);
+    init_f(concentration0, concentration->data);
+    init_f(concentration_tmp, concentration->data);
 }
 
-//================================== 0) Initialization ===================================
-// ***************************************************************************************
+// ============================= Initialization ==============================
+// *****************************************************************************
 /// \brief  initializes variables \a u, \a v, \a p, \a d, \a T at \f$ t=0 \f$
+// *****************************************************************************
 // ***************************************************************************************
-void SolverI::Init() {
-
+void ISolver::init() {
     auto params = Parameters::getInstance();
     std::string string_init_usr_fct = params->get("initial_conditions/usr_fct");
+    bool random = params->get("initial_conditions/random") == "Yes";
 
     if (string_init_usr_fct == FunctionNames::GaussBubble) {
         if (m_string_solver == SolverTypes::AdvectionSolver) {
-            Functions::GaussBubble(u0, 0.);
-            Functions::GaussBubble(v0, 0.);
-            Functions::GaussBubble(w0, 0.);
+            Functions::GaussBubble(u, 0.);
+            Functions::GaussBubble(v, 0.);
+            Functions::GaussBubble(w, 0.);
         }
     } else if (string_init_usr_fct == FunctionNames::Drift) {
         if (m_string_solver == SolverTypes::AdvectionSolver or \
@@ -217,34 +232,34 @@ void SolverI::Init() {
             m_string_solver == SolverTypes::NSTempTurbConSolver or \
             m_string_solver == SolverTypes::NSTempTurbSolver or \
             m_string_solver == SolverTypes::NSTurbSolver) {
-            Functions::Drift(u0, v0, w0, p0);
+            Functions::Drift(u, v, w, p);
         }
         if (m_string_solver == SolverTypes::NSTempSolver or \
             m_string_solver == SolverTypes::NSTempConSolver or \
             m_string_solver == SolverTypes::NSTempTurbConSolver or \
             m_string_solver == SolverTypes::NSTempTurbSolver) {
-            ForceSource();
-            TemperatureSource();
+            force_source();
+            temperature_source();
         }
     } else if (string_init_usr_fct == FunctionNames::ExpSinusProd) {
         // Diffusion test case
         if (m_string_solver == SolverTypes::DiffusionSolver or \
             m_string_solver == SolverTypes::DiffusionTurbSolver) {
-            Functions::ExpSinusProd(u0, 0.);
-            Functions::ExpSinusProd(v0, 0.);
-            Functions::ExpSinusProd(w0, 0.);
+            Functions::ExpSinusProd(u, 0.);
+            Functions::ExpSinusProd(v, 0.);
+            Functions::ExpSinusProd(w, 0.);
         }
     } else if (string_init_usr_fct == FunctionNames::Hat) {
         if (m_string_solver == SolverTypes::DiffusionSolver or \
             m_string_solver == SolverTypes::DiffusionTurbSolver) {
-            Functions::Hat(u0);
-            Functions::Hat(v0);
-            Functions::Hat(w0);
+            Functions::Hat(u);
+            Functions::Hat(v);
+            Functions::Hat(w);
         }
     } else if (string_init_usr_fct == FunctionNames::ExpSinusSum) {
         // Burgers (=nonlinear Advection + Diffusion) test case
         if (m_string_solver == SolverTypes::AdvectionDiffusionSolver) {
-            Functions::ExpSinusSum(u0, v0, w0, 0.);
+            Functions::ExpSinusSum(u, v, w, 0.);
         }
     } else if (string_init_usr_fct == FunctionNames::SinSinSin) {
         if (m_string_solver == SolverTypes::PressureSolver) {
@@ -259,15 +274,15 @@ void SolverI::Init() {
             m_string_solver == SolverTypes::NSTempConSolver or \
             m_string_solver == SolverTypes::NSTempTurbConSolver or \
             m_string_solver == SolverTypes::NSTempTurbSolver) {
-            Functions::McDermott(u0, v0, w0, p0, 0.);
-            Init_c(p0, 0.);
+            Functions::McDermott(u, v, w, p, 0.);
+            init_c(p, 0.);
         }
         if (m_string_solver == SolverTypes::NSTempSolver or \
             m_string_solver == SolverTypes::NSTempConSolver or \
             m_string_solver == SolverTypes::NSTempTurbConSolver or \
             m_string_solver == SolverTypes::NSTempTurbSolver) {
-            ForceSource();
-            TemperatureSource();
+            force_source();
+            temperature_source();
         }
     } else if (string_init_usr_fct == FunctionNames::Vortex) {
         // NavierStokes test case: Vortex (no force, no temperature) 2D
@@ -277,15 +292,15 @@ void SolverI::Init() {
             m_string_solver == SolverTypes::NSTempTurbConSolver or \
             m_string_solver == SolverTypes::NSTempTurbSolver or \
             m_string_solver == SolverTypes::NSTempSolver) {
-            Functions::Vortex(u0, v0, w0, p0);
-            Init_c(p0, 0.);
+            Functions::Vortex(u, v, w, p);
+            init_c(p, 0.);
         }
         if (m_string_solver == SolverTypes::NSTempSolver or \
             m_string_solver == SolverTypes::NSTempConSolver or \
             m_string_solver == SolverTypes::NSTempTurbConSolver or \
             m_string_solver == SolverTypes::NSTempTurbSolver) {
-            ForceSource();
-            TemperatureSource();
+            force_source();
+            temperature_source();
         }
     } else if (string_init_usr_fct == FunctionNames::VortexY) {
         // NavierStokes test case: Vortex (no force, no temperature) 2D
@@ -295,22 +310,22 @@ void SolverI::Init() {
             m_string_solver == SolverTypes::NSTempTurbConSolver or \
             m_string_solver == SolverTypes::NSTempTurbSolver or \
             m_string_solver == SolverTypes::NSTempSolver) {
-            Functions::VortexY(u0, v0, w0, p0);
-            Init_c(p0, 0.);
+            Functions::VortexY(u, v, w, p);
+            init_c(p, 0.);
         }
         if (m_string_solver == SolverTypes::NSTempSolver or \
             m_string_solver == SolverTypes::NSTempConSolver or \
             m_string_solver == SolverTypes::NSTempTurbConSolver or \
             m_string_solver == SolverTypes::NSTempTurbSolver) {
-            ForceSource();
-            TemperatureSource();
+            force_source();
+            temperature_source();
         }
     } else if (string_init_usr_fct == FunctionNames::Beltrami) {
         // NavierStokes test case: Beltrami  (no force, no temperature) 3D
         if (m_string_solver == SolverTypes::NSSolver or \
             m_string_solver == SolverTypes::NSTurbSolver) {
-            Functions::Beltrami(u0, v0, w0, p0, 0.);
-            //Init_c(p0, 0.);
+            Functions::Beltrami(u, v, w, p, 0.);
+            //Init_c(p, 0.);
         }
     } else if (string_init_usr_fct == FunctionNames::BuoyancyMMS) {
         // NavierStokesTemp test case
@@ -319,10 +334,10 @@ void SolverI::Init() {
             m_string_solver == SolverTypes::NSTempConSolver or \
             m_string_solver == SolverTypes::NSTempTurbConSolver or \
             m_string_solver == SolverTypes::NSTempTurbSolver) {
-            Functions::BuoyancyMMS(u0, v0, w0, p0, T0, 0.0);
-            Init_c(p0, 0.);
-            ForceSource();
-            TemperatureSource();
+            Functions::BuoyancyMMS(u, v, w, p, T, 0.0);
+            init_c(p, 0.);
+            force_source();
+            temperature_source();
         }
     } else if (string_init_usr_fct == FunctionNames::Uniform) {
 // Uniform Temperature unequal to zero
@@ -330,40 +345,13 @@ void SolverI::Init() {
             m_string_solver == SolverTypes::NSTempConSolver or \
             m_string_solver == SolverTypes::NSTempTurbConSolver or \
             m_string_solver == SolverTypes::NSTempTurbSolver) {
-            real val = params->getReal("initial_conditions/val");
+            real val = params->get_real("initial_conditions/val");
             Functions::Uniform(T0, val);
-            ForceSource();
-            TemperatureSource();
-        }
-    } else if (string_init_usr_fct == FunctionNames::RandomT) {
-        //Random
-        if (m_string_solver == SolverTypes::NSTempSolver or \
-            m_string_solver == SolverTypes::NSTempConSolver or \
-            m_string_solver == SolverTypes::NSTempTurbConSolver or \
-            m_string_solver == SolverTypes::NSTempTurbSolver) {
-            // Random temperature
-            real Ta = params->getReal("initial_conditions/Ta");        // ambient temperature in KELVIN!
-            real A = params->getReal("initial_conditions/A");            // amplitude
-            size_t range = static_cast<size_t>(params->getInt("initial_conditions/range")); // range of random numbers (0-range)
-            Functions::Random(T0, Ta, A, range);
-        }
-        //Random concentration
-        if ((m_string_solver == SolverTypes::NSTempConSolver or \
-             m_string_solver == SolverTypes::NSTempTurbConSolver)
-            and params->get("initial_conditions/con_fct") == "RandomC") {
-
-            real Ca = params->getReal("initial_conditions/Ca");        //ambient concentration
-            real A_C = params->getReal("initial_conditions/A_C");        //amplitude
-            size_t range_C = static_cast<size_t>(params->getInt("initial_conditions/range_C")); //range of random numbers (0-range)
-
-            Functions::Random(C0, Ca, A_C, range_C);
-        }
-        if (m_string_solver == SolverTypes::NSTempSolver or \
-            m_string_solver == SolverTypes::NSTempConSolver or \
-            m_string_solver == SolverTypes::NSTempTurbConSolver or \
-            m_string_solver == SolverTypes::NSTempTurbSolver) {
-            ForceSource();
-            TemperatureSource();
+            if (random) {
+                CallRandom(T0);
+            }
+            force_source();
+            temperature_source();
         }
     } else if (string_init_usr_fct == "LayersT") {
         if (m_string_solver == SolverTypes::NSTempSolver or \
@@ -371,20 +359,11 @@ void SolverI::Init() {
             m_string_solver == SolverTypes::NSTempTurbConSolver or \
             m_string_solver == SolverTypes::NSTempTurbSolver) {
             Functions::Layers(T0);
-            ForceSource();
-            TemperatureSource();
-        }
-    } else if (string_init_usr_fct == "LayersT,RandomT") {
-        if (m_string_solver == SolverTypes::NSTempSolver or \
-            m_string_solver == SolverTypes::NSTempConSolver or \
-            m_string_solver == SolverTypes::NSTempTurbConSolver or \
-            m_string_solver == SolverTypes::NSTempTurbSolver) {
-            Functions::Layers(T0);
-            real A = params->getReal("initial_conditions/A");        //amplitude
-            size_t range = static_cast<size_t>(params->getReal("initial_conditions/range"));    //range of random numbers (0-range)
-            Functions::Random(T0, T0, A, range);
-            ForceSource();
-            TemperatureSource();
+            if (random) {
+                CallRandom(T0);
+            }
+            force_source();
+            temperature_source();
         }
     } else if (string_init_usr_fct == FunctionNames::Zero) {
         // NavierStokes test case: Channel Flow (with uniform force in x-direction)
@@ -393,9 +372,9 @@ void SolverI::Init() {
             real val_x = 0;
             real val_y = 0;
             real val_z = 0;
-            val_x = params->getReal("solver/source/val_x");
-            val_y = params->getReal("solver/source/val_y");
-            val_z = params->getReal("solver/source/val_z");
+            val_x = params->get_real("solver/source/val_x");
+            val_y = params->get_real("solver/source/val_y");
+            val_z = params->get_real("solver/source/val_z");
             std::string dir = params->get("solver/source/dir");
 
             if (dir.find('x') != std::string::npos) {
@@ -408,9 +387,17 @@ void SolverI::Init() {
                 Functions::Uniform(f_z, val_z);
             }
         } else {
-#ifndef PROFILING
+#ifndef BENCHMARKING
             m_logger->info("Initial values all set to zero!");
 #endif
+        }
+        //Random concentration
+        if ((m_string_solver == SolverTypes::NSTempConSolver or \
+             m_string_solver == SolverTypes::NSTempTurbConSolver)
+            and params->get("initial_conditions/con_fct") == FunctionNames::RandomC) {
+            real Ca = params->get_real("initial_conditions/Ca");        //ambient concentration
+            Functions::Uniform(concentration0, Ca);
+            CallRandom(concentration0);
         }
     }
 
@@ -425,14 +412,13 @@ void SolverI::Init() {
     }
 }
 
-// ========================================== Init =======================================
-// ***************************************************************************************
+// ===================================== Init ==================================
+// *****************************************************************************
 /// \brief  initializes variable with another field
-/// \param	out		output pointer
-/// \param	in		input pointer
-// ***************************************************************************************
-void SolverI::Init_f(Field *out, const real *in) {
-
+/// \param  out     output pointer
+/// \param  in      input pointer
+// *****************************************************************************
+void ISolver::init_f(Field *out, const real *in) {
     auto boundary = BoundaryController::getInstance();
 
     size_t *iList = boundary->get_innerList_level_joined();
@@ -459,14 +445,13 @@ void SolverI::Init_f(Field *out, const real *in) {
     }
 }
 
-// ========================================== Init =======================================
-// ***************************************************************************************
+// ===================================== Init ==================================
+// *****************************************************************************
 /// \brief  initializes variable with constant
-/// \param	out		output pointer
-/// \param	in		constant real value
-// ***************************************************************************************
-void SolverI::Init_c(Field *out, const real in) {
-
+/// \param  out     output pointer
+/// \param  in      constant real value
+// *****************************************************************************
+void ISolver::init_c(Field *out, real in) {
     auto boundary = BoundaryController::getInstance();
 
     size_t *iList = boundary->get_innerList_level_joined();
@@ -476,70 +461,69 @@ void SolverI::Init_c(Field *out, const real in) {
     size_t *oList = boundary->get_obstacleList();
     size_t size_oList = boundary->getSize_obstacleList();
 
-    //inner cells
+    // inner cells
     for (size_t i = 0; i < size_iList; i++) {
         size_t idx = iList[i];
         out->data[idx] = in;
     }
-    //boundary
+    // boundary
     for (size_t i = 0; i < size_bList; i++) {
         size_t idx = bList[i];
         out->data[idx] = in;
     }
-    //obstacle
+    // obstacle
     for (size_t i = 0; i < size_oList; i++) {
         size_t idx = oList[i];
         out->data[idx] = in;
     }
 }
 
-// ========================================== Set up boundary =======================================
-// ***************************************************************************************
+// ================================ Set up boundary =============================
+// *****************************************************************************
 /// \brief  initializes boundary cells
-/// \param  sync	synchronization boolean (true=sync (default), false=async)
+/// \param  sync  synchronization boolean (true=sync (default), false=async)
 // ***************************************************************************************
-void SolverI::SetUpBoundary(bool sync) {
-
+void ISolver::set_up_boundary(bool sync) {
     auto boundary = BoundaryController::getInstance();
-
+    // TODO necessary?
     boundary->applyBoundary(u0->data, u0->GetType(), sync);
     boundary->applyBoundary(v0->data, v0->GetType(), sync);
     boundary->applyBoundary(w0->data, w0->GetType(), sync);
     boundary->applyBoundary(T0->data, T0->GetType(), sync);
     boundary->applyBoundary(p0->data, p0->GetType(), sync);
-    boundary->applyBoundary(C0->data, C0->GetType(), sync);
+    boundary->applyBoundary(concentration0->data, concentration0->GetType(), sync);
 
     boundary->applyBoundary(u->data, u->GetType(), sync);
     boundary->applyBoundary(v->data, v->GetType(), sync);
     boundary->applyBoundary(w->data, w->GetType(), sync);
     boundary->applyBoundary(p->data, p->GetType(), sync);
     boundary->applyBoundary(T->data, T->GetType(), sync);
-    boundary->applyBoundary(C->data, C->GetType(), sync);
+    boundary->applyBoundary(concentration->data, concentration->GetType(), sync);
 
+    // TODO necessary?
     boundary->applyBoundary(u_tmp->data, u_tmp->GetType(), sync);
     boundary->applyBoundary(v_tmp->data, v_tmp->GetType(), sync);
     boundary->applyBoundary(w_tmp->data, w_tmp->GetType(), sync);
     boundary->applyBoundary(T_tmp->data, T_tmp->GetType(), sync);
-    boundary->applyBoundary(T_a->data, T0->GetType(), sync);
-    boundary->applyBoundary(C_tmp->data, C_tmp->GetType(), sync);
+    boundary->applyBoundary(T_ambient->data, T_ambient->GetType(), sync);
+    boundary->applyBoundary(concentration_tmp->data, concentration_tmp->GetType(), sync);
 }
 
-//======================================== Couple velocity ====================================
-// ***************************************************************************************
+// ============================== Couple velocity ==========================
+// *****************************************************************************
 /// \brief  couples vector (sets tmp and zero-th variables to current numerical solution)
-/// \param  a		current field in x- direction (const)
-/// \param  a0		zero-th field in x- direction
-/// \param  a_tmp	temporal field in x- direction
-/// \param  b		current field in y- direction (const)
-/// \param  b0		zero-th field in y- direction
-/// \param  b_tmp	temporal field in y- direction
-/// \param  c		current field in z- direction (const)
-/// \param  c0		zero-th field in z- direction
-/// \param  c_tmp	temporal field in z- direction
-/// \param  sync	synchronization boolean (true=sync (default), false=async)
+/// \param  a   current field in x- direction (const)
+/// \param  a0    zero-th field in x- direction
+/// \param  a_tmp temporal field in x- direction
+/// \param  b   current field in y- direction (const)
+/// \param  b0    zero-th field in y- direction
+/// \param  b_tmp temporal field in y- direction
+/// \param  c   current field in z- direction (const)
+/// \param  c0    zero-th field in z- direction
+/// \param  c_tmp temporal field in z- direction
+/// \param  sync  synchronization boolean (true=sync (default), false=async)
 // ***************************************************************************************
-void SolverI::CoupleVector(const Field *a, Field *a0, Field *a_tmp, const Field *b, Field *b0, Field *b_tmp, const Field *c, Field *c0, Field *c_tmp, bool sync) {
-
+void ISolver::couple_vector(const Field *a, Field *a0, Field *a_tmp, const Field *b, Field *b0, Field *b_tmp, const Field *c, Field *c0, Field *c_tmp, bool sync) {
     // local variables and parameters for GPU
     auto d_a = a->data;
     auto d_a0 = a0->data;
@@ -551,7 +535,7 @@ void SolverI::CoupleVector(const Field *a, Field *a0, Field *a_tmp, const Field 
     auto d_c0 = c0->data;
     auto d_c_tmp = c_tmp->data;
 
-    auto size = Domain::getInstance()->GetSize(a0->GetLevel());
+    auto size = Domain::getInstance()->get_size(a0->GetLevel());
 
     auto boundary = BoundaryController::getInstance();
 
@@ -608,22 +592,21 @@ void SolverI::CoupleVector(const Field *a, Field *a0, Field *a_tmp, const Field 
     }//end data region
 }
 
-//======================================= Couple scalar ==================================
-// ***************************************************************************************
+// ================================== Couple scalar =============================
+// *****************************************************************************
 /// \brief  couples vector (sets tmp and zero-th variables to current numerical solution)
-/// \param  a		current field in x- direction (const)
-/// \param  a0		zero-th field in x- direction
-/// \param  a_tmp	temporal field in x- direction
-/// \param  sync	synchronization boolean (true=sync (default), false=async)
+/// \param  a   current field in x- direction (const)
+/// \param  a0    zero-th field in x- direction
+/// \param  a_tmp temporal field in x- direction
+/// \param  sync  synchronization boolean (true=sync (default), false=async)
 // ***************************************************************************************
-void SolverI::CoupleScalar(const Field *a, Field *a0, Field *a_tmp, bool sync) {
-
+void ISolver::couple_scalar(const Field *a, Field *a0, Field *a_tmp, bool sync) {
     // local variables and parameters for GPU
     auto d_a = a->data;
     auto d_a0 = a0->data;
     auto d_a_tmp = a_tmp->data;
 
-    auto size = Domain::getInstance()->GetSize(a0->GetLevel());
+    auto size = Domain::getInstance()->get_size(a0->GetLevel());
 
     auto boundary = BoundaryController::getInstance();
 
@@ -666,15 +649,14 @@ void SolverI::CoupleScalar(const Field *a, Field *a0, Field *a_tmp, bool sync) {
     }//end data region
 }
 
-//======================================= Update data ==================================
-// ***************************************************************************************
+// ================================== Update data =============================
+// *****************************************************************************
 /// \brief  Updates variables for the next iteration step or time dependent parameters such as temperature source function
-/// \param  sync	synchronization boolean (true=sync (default), false=async)
+/// \param  sync  synchronization boolean (true=sync (default), false=async)
 // ***************************************************************************************
-void SolverI::UpdateData(bool sync) {
-
+void ISolver::update_data(bool sync) {
     // local variables and parameters for GPU
-    auto bsize = Domain::getInstance()->GetSize();
+    auto bsize = Domain::getInstance()->get_size();
 
     const auto d_u = u->data;                        //due to const correctness
     const auto d_v = v->data;
@@ -690,9 +672,9 @@ void SolverI::UpdateData(bool sync) {
     const auto d_T = T->data;
     auto d_T0 = T0->data;
     auto d_T_tmp = T_tmp->data;
-    const auto d_C = C->data;
-    auto d_C0 = C0->data;
-    auto d_C_tmp = C_tmp->data;
+    const auto d_C = concentration->data;
+    auto d_C0 = concentration0->data;
+    auto d_C_tmp = concentration_tmp->data;
 
     auto boundary = BoundaryController::getInstance();
 
@@ -768,11 +750,10 @@ void SolverI::UpdateData(bool sync) {
 //======================================= Update data ==================================
 // ***************************************************************************************
 /// \brief  Updates time dependent parameters such as momentum/temperature/concentration source functions
-/// \param	t		time
-/// \param  sync	synchronization boolean (true=sync (default), false=async)
+/// \param  t   time
+/// \param  sync  synchronization boolean (true=sync (default), false=async)
 // ***************************************************************************************
-void SolverI::UpdateSources(real t, bool sync) {
-
+void ISolver::update_sources(real t, bool sync) {
     auto params = Parameters::getInstance();
 
 // Momentum source
@@ -785,16 +766,17 @@ void SolverI::UpdateSources(real t, bool sync) {
         std::string forceFct = params->get("solver/source/force_fct");
         if (forceFct == SourceMethods::Zero or \
             forceFct == SourceMethods::Uniform) {
-
         } else if (forceFct == SourceMethods::Buoyancy) {
-#ifndef PROFILING
+#ifndef BENCHMARKING
             m_logger->info("Update f(T) ...");
 #endif
-            MomentumSource();
+            momentum_source();
         } else {
+#ifndef BENCHMARKING
             m_logger->critical("Source function not yet implemented! Simulation stopped!");
+#endif
             std::exit(1);
-            //TODO Error handling
+            // TODO Error handling
         }
     }
 
@@ -808,22 +790,22 @@ void SolverI::UpdateSources(real t, bool sync) {
         if (tempFct == SourceMethods::Zero) {
 
         } else if (tempFct == SourceMethods::BuoyancyST_MMS) {
-            sou_vel->BuoyancyST_MMS(S_T, t, sync);
+            source_velocity->buoyancy_ST_MMS(S_T, t, sync);
         } else if (tempFct == SourceMethods::GaussST and params->get("solver/temperature/source/ramp_fct") == FunctionNames::RampTanh) {
             // get parameters for Gauss function
-            real HRR = params->getReal("solver/temperature/source/HRR");    // heat release rate in [kW]
-            real cp = params->getReal("solver/temperature/source/cp");        // specific heat capacity in [kJ/ kg K]
-            real x0 = params->getReal("solver/temperature/source/x0");
-            real y0 = params->getReal("solver/temperature/source/y0");
-            real z0 = params->getReal("solver/temperature/source/z0");
-            real sigmax = params->getReal("solver/temperature/source/sigmax");
-            real sigmay = params->getReal("solver/temperature/source/sigmay");
-            real sigmaz = params->getReal("solver/temperature/source/sigmaz");
+            real HRR = params->get_real("solver/temperature/source/HRR");    // heat release rate in [kW]
+            real cp = params->get_real("solver/temperature/source/cp");        // specific heat capacity in [kJ/ kg K]
+            real x0 = params->get_real("solver/temperature/source/x0");
+            real y0 = params->get_real("solver/temperature/source/y0");
+            real z0 = params->get_real("solver/temperature/source/z0");
+            real sigmax = params->get_real("solver/temperature/source/sigmax");
+            real sigmay = params->get_real("solver/temperature/source/sigmay");
+            real sigmaz = params->get_real("solver/temperature/source/sigmaz");
 
-            sou_vel->Gauss(S_T, HRR, cp, x0, y0, z0, sigmax, sigmay, sigmaz, sync);
+            source_velocity->gauss(S_T, HRR, cp, x0, y0, z0, sigmax, sigmay, sigmaz, sync);
 
             auto d_S_T = S_T->data;
-            auto bsize = Domain::getInstance()->GetSize();
+            auto bsize = Domain::getInstance()->get_size();
 
             auto boundary = BoundaryController::getInstance();
             size_t *d_iList = boundary->get_innerList_level_joined();
@@ -840,9 +822,11 @@ void SolverI::UpdateSources(real t, bool sync) {
                 d_S_T[idx] *= t_ramp;
             }
         } else {
+#ifndef BENCHMARKING
             m_logger->critical("Source function not yet implemented! Simulation stopped!");
+#endif
             std::exit(1);
-            //TODO Error handling
+            // TODO Error handling
         }
     }
 
@@ -855,20 +839,20 @@ void SolverI::UpdateSources(real t, bool sync) {
         } else if (conFct == SourceMethods::GaussSC \
  and params->get("solver/concentration/source/ramp_fct") == FunctionNames::RampTanh) {
             //get parameters for Gauss function
-            real HRR = params->getReal("solver/concentration/source/HRR");       // heat release rate in [kW]
-            real Hc = params->getReal("solver/concentration/source/Hc");        // heating value in [kJ/kg]
-            real Ys = params->getReal("solver/concentration/source/Ys");        // soot yield in [g/g]
+            real HRR = params->get_real("solver/concentration/source/HRR");       // heat release rate in [kW]
+            real Hc = params->get_real("solver/concentration/source/Hc");        // heating value in [kJ/kg]
+            real Ys = params->get_real("solver/concentration/source/Ys");        // soot yield in [g/g]
             real YsHRR = Ys * HRR;
-            real x0 = params->getReal("solver/concentration/source/x0");
-            real y0 = params->getReal("solver/concentration/source/y0");
-            real z0 = params->getReal("solver/concentration/source/z0");
-            real sigmax = params->getReal("solver/concentration/source/sigmax");
-            real sigmay = params->getReal("solver/concentration/source/sigmay");
-            real sigmaz = params->getReal("solver/concentration/source/sigmaz");
+            real x0 = params->get_real("solver/concentration/source/x0");
+            real y0 = params->get_real("solver/concentration/source/y0");
+            real z0 = params->get_real("solver/concentration/source/z0");
+            real sigmax = params->get_real("solver/concentration/source/sigmax");
+            real sigmay = params->get_real("solver/concentration/source/sigmay");
+            real sigmaz = params->get_real("solver/concentration/source/sigmaz");
 
-            sou_con->Gauss(S_C, YsHRR, Hc, x0, y0, z0, sigmax, sigmay, sigmaz, sync);
-            auto d_S_C = S_C->data;
-            auto bsize = Domain::getInstance()->GetSize();
+            source_concentration->gauss(S_concentration, YsHRR, Hc, x0, y0, z0, sigmax, sigmay, sigmaz, sync);
+            auto d_S_C = S_concentration->data;
+            auto bsize = Domain::getInstance()->get_size();
 
             auto boundary = BoundaryController::getInstance();
             size_t *d_iList = boundary->get_innerList_level_joined();
@@ -883,62 +867,89 @@ void SolverI::UpdateSources(real t, bool sync) {
                 d_S_C[idx] *= t_ramp;
             }
         } else {
+#ifndef BENCHMARKING
             m_logger->critical("Source function not yet implemented! Simulation stopped!");
+#endif
             std::exit(1);
-            //TODO Error handling
+            // TODO Error handling
         }
     }
 }
 
-//======================================= Update data ==================================
-// ***************************************************************************************
+// ================================== Update data =============================
+// *****************************************************************************
 /// \brief  Updates time dependent parameters temperature source functions
 // ***************************************************************************************
-void SolverI::TemperatureSource() {
+void ISolver::temperature_source() {
 // Temperature source
     if (Parameters::getInstance()->get("solver/temperature/source/temp_fct") == FunctionNames::BuoyancyST_MMS) {
         Functions::BuoyancyST_MMS(S_T, 0.);
     }
 }
 
-//======================================= Update data ==================================
-// ***************************************************************************************
+// ================================== Update data =============================
+// *****************************************************************************
 /// \brief  Updates time dependent parameters force source functions
 // ***************************************************************************************
-void SolverI::ForceSource() {
+void ISolver::force_source() {
     auto params = Parameters::getInstance();
     // Force
     if (params->get("solver/source/force_fct") == SourceMethods::Buoyancy) {
         std::string dir = params->get("solver/source/dir");
-        Init_f(T_a, T0->data);
+        init_f(T_ambient, T0->data);
 
         if (dir.find('x') != std::string::npos) {
-            Functions::BuoyancyForce(f_x, T0, T_a);
+            Functions::BuoyancyForce(f_x, T0, T_ambient);
         }
         if (dir.find('y') != std::string::npos) {
-            Functions::BuoyancyForce(f_y, T0, T_a);
+            Functions::BuoyancyForce(f_y, T0, T_ambient);
         }
         if (dir.find('z') != std::string::npos) {
-            Functions::BuoyancyForce(f_z, T0, T_a);
+            Functions::BuoyancyForce(f_z, T0, T_ambient);
         }
     }
 }
 
-//======================================= Update data ==================================
-// ***************************************************************************************
+//================================== Update data =============================
+// *****************************************************************************
 /// \brief  Updates time dependent parameters momentum source functions
 // ***************************************************************************************
-void SolverI::MomentumSource() {
+void ISolver::momentum_source() {
     //Momentum source
     auto params = Parameters::getInstance();
     std::string dir_vel = params->get("solver/source/dir");
     if (dir_vel.find('x') != std::string::npos) {
-        sou_vel->BuoyancyForce(f_x, T, T_a);
+        source_velocity->buoyancy_force(f_x, T, T_ambient);
     }
     if (dir_vel.find('y') != std::string::npos) {
-        sou_vel->BuoyancyForce(f_y, T, T_a);
+        source_velocity->buoyancy_force(f_y, T, T_ambient);
     }
     if (dir_vel.find('z') != std::string::npos) {
-        sou_vel->BuoyancyForce(f_z, T, T_a);
+        source_velocity->buoyancy_force(f_z, T, T_ambient);
     }
+}
+
+//======================================= read and call random function ==================================
+// ***************************************************************************************
+/// \brief  Calls random function and reads necessary input variables
+/// \param  field		field as a pointer
+// ***************************************************************************************
+void ISolver::CallRandom(Field* field) {
+  auto params = Parameters::getInstance();
+  real range = params->get_real("initial_conditions/random/range"); // +- range of random numbers
+  bool is_absolute = params->get("initial_conditions/random/absolute") == "Yes";
+  bool has_custom_seed = params->get("initial_conditions/random/custom_seed") == "Yes";
+  bool has_custom_steps = params->get("initial_conditions/random/custom_steps") == "Yes";
+
+  int seed = -1;
+  if (has_custom_seed){
+      seed = params->get_int("initial_conditions/random/seed");
+  }
+
+  real step_size = 1.0;
+  if(has_custom_steps){
+      step_size = params->get_real("initial_conditions/random/step_size");
+  }
+
+  Functions::Random(field, range, is_absolute, seed, step_size);
 }

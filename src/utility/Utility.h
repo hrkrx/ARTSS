@@ -10,9 +10,12 @@
 #include <string>
 #include <vector>
 
+#ifndef BENCHMARKING
+#define FMT_USE_UDL_TEMPLATE 0
 #include "spdlog/logger.h"
 #include "spdlog/sinks/basic_file_sink.h"
 #include "spdlog/sinks/stdout_color_sinks.h"
+#endif
 
 class Utility {
  public:
@@ -30,7 +33,9 @@ class Utility {
     static std::vector<std::string> split(const std::string& text,
                                           char delimiter);
 
-    static std::shared_ptr<spdlog::logger> createLogger(std::string loggerName);
+#ifndef BENCHMARKING
+    static std::shared_ptr<spdlog::logger> create_logger(std::string loggerName);
+#endif
 
  private:
     Utility() = default;
